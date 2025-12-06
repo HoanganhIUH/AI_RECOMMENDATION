@@ -1,8 +1,6 @@
-flask
-flask-cors
-pymongo
-pandas
-scikit-learn
-python-dotenv
-google-generativeai
-gunicorn
+flask==3.0.0
+flask-cors==4.0.0
+pymongo==4.6.1
+python-dotenv==1.0.0
+google-generativeai==0.3.0
+gunicorn==21.2.0
