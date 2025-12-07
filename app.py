@@ -88,6 +88,7 @@ def generate_training_plans(user_info, trainings_list):
     "4. Phải tạo ĐÚNG 7 ngày, theo đúng thứ tự từ 1 đến 7 (không được thiếu, không được đảo thứ tự)\n"
     "5. Mỗi ngày phải có TỐI THIỂU 3 bài tập, TỐI ĐA 6 bài tập\n"
     "6. Mọi bài tập bạn chọn BẮT BUỘC PHẢI ĐÚNG THEO MỤC TIÊU CỦA NGƯỜI DÙNG 100%\n"
+    "7. Bắt buộc phải có bài tập không để trainingID là null\n"
     "Tuyệt đối không lấy bài tập từ level khác dù chỉ 1 bài và phải đúng với mục tiêu của người dùng. Nếu thiếu bài thì giảm buổi/thời gian.\n\n"
 
     "=== MỤC TIÊU CỦA NGƯỜI DÙNG (bắt buộc dùng đúng) ===\n"
