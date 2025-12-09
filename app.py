@@ -6,6 +6,8 @@ import json
 import google.generativeai as genai
 import os
 from dotenv import load_dotenv
+import requests
+import math
 
 app = Flask(__name__)
 CORS(app, resources={r"/*": {"origins": "*"}}, supports_credentials=True)
@@ -88,8 +90,7 @@ def generate_training_plans(user_info, trainings_list):
     "4. Phải tạo ĐÚNG 7 ngày, theo đúng thứ tự từ 1 đến 7 (không được thiếu, không được đảo thứ tự)\n"
     "5. Mỗi ngày phải có TỐI THIỂU 3 bài tập, TỐI ĐA 6 bài tập\n"
     "6. Mọi bài tập bạn chọn BẮT BUỘC PHẢI ĐÚNG THEO MỤC TIÊU CỦA NGƯỜI DÙNG 100%\n"
-    "7. Bắt buộc phải có bài tập không để trainingID là null\n"
-    "Tuyệt đối không lấy bài tập từ level khác dù chỉ 1 bài và phải đúng với mục tiêu của người dùng. Nếu thiếu bài thì giảm buổi/thời gian.\n\n"
+    "7. Bắt buộc phải có bài tập không để trainingID là null, nếu không có bài tập thì bỏ qua, 1 buổi tập từ 2 đến 4 bài đều được\n"
 
     "=== MỤC TIÊU CỦA NGƯỜI DÙNG (bắt buộc dùng đúng) ===\n"
     f"{clean_goal}\n\n"
@@ -349,6 +350,160 @@ def chat():
     
     return jsonify({"reply": reply_clean})
 
+def calculate_distance(lat1, lon1, lat2, lon2):
+    """Tính khoảng cách giữa 2 điểm (km)"""
+    R = 6371
+    dlat = math.radians(lat2 - lat1)
+    dlon = math.radians(lon2 - lon1)
+    a = (math.sin(dlat / 2) ** 2 +
+         math.cos(math.radians(lat1)) * math.cos(math.radians(lat2)) *
+         math.sin(dlon / 2) ** 2)
+    c = 2 * math.atan2(math.sqrt(a), math.sqrt(1 - a))
+    return round(R * c, 2)
+
+def search_nearby_courts(latitude, longitude):
+    """
+    Tìm TOP 5 sân cầu lông gần nhất
+    
+    Args:
+        latitude: Vĩ độ
+        longitude: Kinh độ
+    
+    Returns:
+        List của 5 sân cầu lông gần nhất
+    """
+    api_key = os.getenv("HERE_API_KEY")
+    
+    if not api_key:
+        return {"error": "Chưa cấu hình HERE API Key"}
+    
+    # HERE Discover API
+    url = "https://discover.search.hereapi.com/v1/discover"
+    
+    params = {
+        'at': f'{latitude},{longitude}',
+        'q': 'badminton court',
+        'limit': 10,  # Lấy 10 để có đủ dữ liệu, sau đó filter ra 5
+        'apiKey': api_key,
+        'lang': 'vi-VN'
+    }
+    
+    try:
+        response = requests.get(url, params=params)
+        data = response.json()
+        
+        if 'items' not in data or len(data['items']) == 0:
+            # Thử keyword rộng hơn
+            params['q'] = 'badminton'
+            response = requests.get(url, params=params)
+            data = response.json()
+        
+        courts = []
+        for place in data.get('items', []):
+            position = place.get('position', {})
+            court_lat = position.get('lat')
+            court_lng = position.get('lng')
+            
+            if not court_lat or not court_lng:
+                continue
+            
+            distance = calculate_distance(latitude, longitude, court_lat, court_lng)
+            
+            address = place.get('address', {})
+            full_address = address.get('label', 'N/A')
+            
+            # Lấy thông tin liên hệ
+            contacts = place.get('contacts', [])
+            phone = None
+            if contacts and contacts[0].get('phone'):
+                phone = contacts[0]['phone'][0].get('value')
+            
+            # Giờ mở cửa
+            opening_hours = place.get('openingHours', [])
+            is_open = opening_hours[0].get('isOpen') if opening_hours else None
+            
+            courts.append({
+                'id': place.get('id'),
+                'name': place.get('title', 'Sân cầu lông'),
+                'address': full_address,
+                'latitude': court_lat,
+                'longitude': court_lng,
+                'distance': distance,
+                'phone': phone,
+                'isOpen': is_open
+            })
+        
+        # Sắp xếp theo khoảng cách và lấy TOP 5
+        courts.sort(key=lambda x: x['distance'])
+        return courts[:5]
+        
+    except Exception as e:
+        print(f"HERE API Error: {e}")
+        return {"error": f"Lỗi khi tìm kiếm: {str(e)}"}
+
+# ========== ENDPOINT ==========
+
+@app.route("/api/nearby-courts", methods=["POST"])
+def nearby_courts():
+    """
+    Tìm TOP 5 sân cầu lông gần nhất
+    
+    Body:
+    {
+        "latitude": 10.8231,
+        "longitude": 106.6297
+    }
+    
+    Response:
+    {
+        "success": true,
+        "courts": [
+            {
+                "id": "here:pds:place:...",
+                "name": "Sân cầu lông ABC",
+                "address": "123 Nguyễn Huệ, Q1, TP.HCM",
+                "latitude": 10.8231,
+                "longitude": 106.6297,
+                "distance": 0.5,
+                "phone": "0901234567",
+                "isOpen": true
+            }
+        ]
+    }
+    """
+    data = request.get_json()
+    
+    if not data:
+        return jsonify({"error": "Thiếu dữ liệu"}), 400
+    
+    latitude = data.get('latitude')
+    longitude = data.get('longitude')
+    
+    if not latitude or not longitude:
+        return jsonify({"error": "Thiếu thông tin vị trí (latitude, longitude)"}), 400
+    
+    try:
+        latitude = float(latitude)
+        longitude = float(longitude)
+    except ValueError:
+        return jsonify({"error": "Dữ liệu vị trí không hợp lệ"}), 400
+    
+    courts = search_nearby_courts(latitude, longitude)
+    
+    if isinstance(courts, dict) and 'error' in courts:
+        return jsonify(courts), 500
+    
+    return jsonify({
+        "success": True,
+        "userLocation": {
+            "latitude": latitude,
+            "longitude": longitude
+        },
+        "totalCourts": len(courts),
+        "courts": courts
+    })
+
 
 if __name__ == "__main__":
-    app.run(host="0.0.0.0", port=5000, debug=True)
+    app.debug = True
+    app.run()
