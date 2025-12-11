@@ -21,6 +21,22 @@ trainings = db["trainings"]
 trainingplans = db["trainingplans"]
 meals = db["meals"]
 
+def get_filtered_trainings(clean_goal):
+    # 1) Lọc theo goal (hỗ trợ goal dạng chuỗi hoặc mảng)
+    query = {
+        "$or": [
+            {"goal": clean_goal},
+            {"goal": {"$in": [clean_goal]}},
+        ]
+    }
+
+    filtered = list(trainings.find(query))
+
+    # 2) Fallback nếu số bài tập quá ít (< 10)
+    if len(filtered) < 10:
+        filtered = list(trainings.find({}))  # fallback lấy tất cả
+
+    return filtered
 
 
 genai.configure(api_key=os.getenv("GOOGLE_API_KEY"))
@@ -135,13 +151,20 @@ def generate_training_plans(user_info, trainings_list):
     "Chỉ trả về JSON thuần, không ```json, không giải thích."
 )
 
-    response = model.generate_content(
-    prompt,
-    generation_config=genai.types.GenerationConfig(
-        response_mime_type="application/json"
-    )
-)
-    return response.text
+    try:
+        response = model.generate_content(
+            prompt,
+            generation_config=genai.types.GenerationConfig(
+                response_mime_type="application/json"
+            )
+        )
+        return response.text
+    except Exception as e:
+        print("Gemini Error:", e)
+        return json.dumps({
+            "plans": [],
+            "error": "Gemini quota exceeded"
+        }, ensure_ascii=False)
 
 @app.route("/recommend/training-plan/<user_id>", methods=["GET"])
 def recommend_training_plan(user_id):
@@ -153,7 +176,22 @@ def recommend_training_plan(user_id):
 
     user["_id"] = str(user["_id"])
 
-    training_docs = list(trainings.find({}))
+    # --- Chuẩn hóa goal ---
+    raw_goal = user.get("goal", [])
+
+    if isinstance(raw_goal, list):
+        clean_goal = ", ".join([str(g).strip() for g in raw_goal if g])
+    elif isinstance(raw_goal, str):
+        clean_goal = raw_goal.strip("[]'\" ")
+    else:
+        clean_goal = ""
+
+    if not clean_goal:
+        clean_goal = "Cải thiện kỹ năng cầu lông"
+
+    # --- Lọc bài tập theo goal (đã sửa) ---
+    training_docs = get_filtered_trainings(clean_goal)
+
     trainings_list = []
     training_map = {}
 
@@ -191,9 +229,10 @@ def recommend_training_plan(user_id):
         "plans": plans
     })
 
+
 def get_training_list():
     """Lấy danh sách bài tập từ database"""
-    training_docs = list(trainings.find({}, {"title": 1, "goal": 1, "level": 1, "description": 1}))
+    training_docs = list(trainings.find({}, {"title": 1, "goal": 1, "level": 1, "description": 1})).limit(30)
     training_list = []
     
     for t in training_docs:
@@ -209,7 +248,7 @@ def get_training_list():
 
 def get_meal_list():
     """Lấy danh sách món ăn từ database"""
-    meal_docs = list(meals.find({}, {"name": 1, "calories": 1, "goal": 1, "mealType": 1, "description": 1}))
+    meal_docs = list(meals.find({}, {"name": 1, "calories": 1, "goal": 1, "mealType": 1, "description": 1})).limit(30)
     meal_list = []
     
     for m in meal_docs:
