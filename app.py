@@ -232,7 +232,7 @@ def recommend_training_plan(user_id):
 
 def get_training_list():
     """Lấy danh sách bài tập từ database"""
-    training_docs = list(trainings.find({}, {"title": 1, "goal": 1, "level": 1, "description": 1})).limit(30)
+    training_docs = list(trainings.find({}, {"title": 1, "goal": 1, "level": 1, "description": 1}).limit(30))
     training_list = []
     
     for t in training_docs:
@@ -248,7 +248,7 @@ def get_training_list():
 
 def get_meal_list():
     """Lấy danh sách món ăn từ database"""
-    meal_docs = list(meals.find({}, {"name": 1, "calories": 1, "goal": 1, "mealType": 1, "description": 1})).limit(30)
+    meal_docs = list(meals.find({}, {"name": 1, "calories": 1, "goal": 1, "mealType": 1, "description": 1}).limit(30))
     meal_list = []
     
     for m in meal_docs:
